@@ -1641,6 +1641,31 @@ def build_index(
     )
 
 
+def build_bm25_index(
+    full_text_db_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    max_papers: Optional[int] = None,
+    index_text_chars: int = 20000,
+    similarity_top_k: int = 5,
+) -> Dict[str, Any]:
+    """
+    Build LlamaIndex BM25 persist dir from full_text_db (subset by paper count).
+
+    Defaults:
+        full_text_db_path: config.DB_PATH
+        output_dir: config.BM25_INDEX_DIR (e.g. squai_data/bm25_retriever)
+    """
+    from build_bm25_index import build_bm25_from_full_text_db
+
+    return build_bm25_from_full_text_db(
+        full_text_db_path=full_text_db_path or DB_PATH,
+        output_dir=output_dir or BM25_INDEX_DIR,
+        max_papers=max_papers,
+        index_text_chars=index_text_chars,
+        similarity_top_k=similarity_top_k,
+    )
+
+
 def main():
     """Main function with enhanced 4-agent support"""
 
@@ -1747,8 +1772,64 @@ def main():
         metavar="N",
         help="Only index the first N papers (sorted by paper_id), for a smaller/faster index; omit for all papers",
     )
+    parser.add_argument(
+        "--build_bm25_index",
+        action="store_true",
+        help="Build BM25 (LlamaIndex) index from full_text_db into bm25_retriever and exit",
+    )
+    parser.add_argument(
+        "--bm25_output_dir",
+        type=str,
+        default=None,
+        help="Where to persist BM25 index (default: config BM25_INDEX_DIR)",
+    )
+    parser.add_argument(
+        "--bm25_max_papers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only include the first N papers (sorted by paper_id) in BM25 index; omit for all",
+    )
+    parser.add_argument(
+        "--bm25_index_text_chars",
+        type=int,
+        default=20000,
+        help="Max characters per paper indexed into BM25 (prefix of full text)",
+    )
+    parser.add_argument(
+        "--bm25_similarity_top_k",
+        type=int,
+        default=5,
+        help="Default similarity_top_k stored in persisted BM25 retriever",
+    )
 
     args = parser.parse_args()
+
+    if args.build_bm25_index:
+        from build_bm25_index import print_bm25_summary
+
+        ft_path = args.db_path if args.db_path else DB_PATH
+        bo_path = args.bm25_output_dir if args.bm25_output_dir else BM25_INDEX_DIR
+        logger.info(
+            "Building BM25 index from full_text_db=%s -> %s (max_papers=%s)",
+            ft_path,
+            bo_path,
+            args.bm25_max_papers,
+        )
+        try:
+            stats = build_bm25_index(
+                full_text_db_path=ft_path,
+                output_dir=bo_path,
+                max_papers=args.bm25_max_papers,
+                index_text_chars=args.bm25_index_text_chars,
+                similarity_top_k=args.bm25_similarity_top_k,
+            )
+        except Exception as e:
+            logger.exception("build_bm25_index failed: %s", e)
+            return 1
+        print_bm25_summary(stats)
+        if not args.build_index:
+            return 0
 
     if args.build_index:
         from build_index import print_index_summary
