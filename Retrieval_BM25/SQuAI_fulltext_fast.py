@@ -645,7 +645,18 @@ class FourAgentRAG:
 
         # Initialize agents
         if isinstance(agent_model, str):
-            if "falcon" in agent_model.lower() and falcon_api_key:
+            _ml = agent_model.lower()
+            if "deepseek" in _ml and falcon_api_key:
+                from api_agent import create_four_deepseek_agents
+
+                self.agent1, self.agent2, self.agent3, self.agent4 = (
+                    create_four_deepseek_agents(falcon_api_key, agent_model)
+                )
+            elif "deepseek" in _ml and not falcon_api_key:
+                raise ValueError(
+                    "DeepSeek model requires an API key (DEEPSEEK_API_KEY or falcon_api_key)."
+                )
+            elif "falcon" in _ml and falcon_api_key:
                 from api_agent import FalconAgent
 
                 self.agent1 = FalconAgent(falcon_api_key)
@@ -1217,8 +1228,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="tiiuae/Falcon3-10B-Instruct",
-        help="Model for LLM agents",
+        default="deepseek-chat",
+        help="LLM id (DeepSeek API or local HF); set DEEPSEEK_API_KEY for API",
     )
     parser.add_argument(
         "--n", type=float, default=0.5, help="Adjustment factor for adaptive judge bar"
@@ -1295,10 +1306,12 @@ def main():
 
     retriever = create_bm25_only_retriever(BM25_INDEX_DIR, args.top_k)
 
+    llm_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("FALCON_API_KEY")
     ragent = FourAgentRAG(
         retriever,
         agent_model=args.model,
         n=args.n,
+        falcon_api_key=llm_key,
         index_dir=args.index_dir,
         max_workers=args.max_workers,
         max_context_chars=args.max_context_chars,

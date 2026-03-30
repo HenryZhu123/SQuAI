@@ -15,7 +15,7 @@ from langdetect import detect, LangDetectException
 app = FastAPI()
 
 # Default config values
-DEFAULT_MODEL = "tiiuae/Falcon3-10B-Instruct"
+DEFAULT_MODEL = os.environ.get("SQUAI_LLM_MODEL", "deepseek-chat")
 DEFAULT_RETRIEVER = "hybrid"
 DEFAULT_N_VALUE = 0.5
 DEFAULT_TOP_K = 5
@@ -60,10 +60,14 @@ def startup_event():
             top_k=DEFAULT_TOP_K,
             alpha=DEFAULT_ALPHA,
         )
+        llm_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get(
+            "FALCON_API_KEY"
+        )
         ragent = Enhanced4AgentRAG(
             retriever=retriever,
             agent_model=DEFAULT_MODEL,
             n=DEFAULT_N_VALUE,
+            falcon_api_key=llm_key,
             index_dir=BM25_INDEX_DIR,
             max_workers=6,
         )

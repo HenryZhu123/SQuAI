@@ -316,3 +316,12 @@ class DeepSeekAgent:
                 results.append(self.get_log_probs(prompt, ["Yes", "No"]))
 
         return results
+
+
+def create_four_deepseek_agents(api_key: str, model: str):
+    """
+    Build four DeepSeekAgent instances (same model id) for 4-agent RAG pipelines.
+
+    Each agent is independent; matches prior pattern of four FalconAgent instances.
+    """
+    return tuple(DeepSeekAgent(api_key, model=model) for _ in range(4))

@@ -31,12 +31,14 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 try:
-    from config import E5_INDEX_DIR, EMBEDDING_DIM, EMBEDDING_MODEL, USE_GPU
+    from config import DB_PATH, E5_INDEX_DIR, EMBEDDING_DIM, EMBEDDING_MODEL, USE_GPU
 except ImportError:
     _ROOT = Path(__file__).resolve().parent
     if str(_ROOT) not in sys.path:
         sys.path.insert(0, str(_ROOT))
-    from config import E5_INDEX_DIR, EMBEDDING_DIM, EMBEDDING_MODEL, USE_GPU
+    from config import DB_PATH, E5_INDEX_DIR, EMBEDDING_DIM, EMBEDDING_MODEL, USE_GPU
+
+from sqlite_compat import open_db
 
 logger = logging.getLogger("build_index")
 
@@ -263,6 +265,138 @@ def load_corpus_records(
     return records
 
 
+def load_corpus_records_from_full_text_db(
+    kv_path: Path,
+    chunk_size: int,
+    chunk_overlap: int,
+    max_papers: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Read (key, value) pairs from full_text_db KV store, chunk each value,
+    and return the same record shape as load_corpus_records.
+    Keys must be UTF-8 paper_id strings; values are full document text.
+
+    If ``max_papers`` is set, papers are sorted by ``paper_id`` and only the
+    first ``max_papers`` are indexed (reproducible subset for smaller / faster builds).
+    """
+    if max_papers is not None and max_papers < 1:
+        raise ValueError("max_papers must be >= 1 when set")
+
+    pairs: List[Tuple[str, str]] = []
+    db = open_db(str(kv_path), create_if_missing=False)
+    try:
+        for key, value in db:
+            paper_id = key.decode("utf-8", errors="replace")
+            text = value.decode("utf-8", errors="replace")
+            pairs.append((paper_id, text))
+    finally:
+        db.close()
+
+    total_in_store = len(pairs)
+    pairs.sort(key=lambda x: x[0])
+    if max_papers is not None:
+        pairs = pairs[:max_papers]
+    logger.info(
+        "full_text_db: %d papers will be chunked (total keys in store: %d)%s",
+        len(pairs),
+        total_in_store,
+        f", max_papers={max_papers}" if max_papers is not None else "",
+    )
+
+    records: List[Dict[str, Any]] = []
+    for paper_id, text in pairs:
+        chunks = chunk_text(text, chunk_size, chunk_overlap)
+        path_tag = hashlib.md5(paper_id.encode("utf-8")).hexdigest()[:10]
+        for i, chunk in enumerate(chunks):
+            safe_pid = re.sub(r"[^\w\-.:]+", "_", paper_id)[:120]
+            doc_row_id = f"{safe_pid}_{path_tag}_c{i}"
+            records.append(
+                {
+                    "doc_row_id": doc_row_id,
+                    "paper_id": paper_id,
+                    "content": chunk,
+                    "source_file": f"full_text_db:{paper_id}",
+                }
+            )
+    return records
+
+
+def build_index_from_full_text_db(
+    full_text_db_path: str | Path | None = None,
+    output_dir: Optional[str | Path] = None,
+    *,
+    embedding_model: Optional[str] = None,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    device: Optional[str] = None,
+    max_papers: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Build FAISS + index_store from SQuAI full_text_db (same layout as build_index_from_directory).
+
+    Args:
+        full_text_db_path: LevelDB/SQLite KV directory (default: config.DB_PATH).
+        output_dir: FAISS output directory (default: config.E5_INDEX_DIR).
+        max_papers: If set, only index this many papers (sorted by paper_id), for smaller/faster builds.
+    """
+    kv = Path(full_text_db_path or DB_PATH).resolve()
+    out = Path(output_dir or E5_INDEX_DIR).resolve()
+    model_name = embedding_model or EMBEDDING_MODEL
+
+    if not kv.is_dir():
+        raise FileNotFoundError(f"full_text_db directory does not exist: {kv}")
+
+    records = load_corpus_records_from_full_text_db(
+        kv, chunk_size, chunk_overlap, max_papers=max_papers
+    )
+    if not records:
+        raise RuntimeError(
+            f"No chunks produced from {kv}. Ensure keys/values exist in full_text_db."
+        )
+
+    contents = [r["content"] for r in records]
+    model = load_embedding_model(model_name, device=device)
+    dim_model = model.get_sentence_embedding_dimension()
+    if EMBEDDING_DIM and dim_model != EMBEDDING_DIM:
+        logger.warning(
+            "config.EMBEDDING_DIM=%s but model reports %s — using model dimension %s",
+            EMBEDDING_DIM,
+            dim_model,
+            dim_model,
+        )
+
+    vectors = encode_chunks(model, contents, batch_size)
+    index = build_faiss_ip_index(vectors)
+
+    rows: List[Tuple[str, int, str, str]] = []
+    for i, rec in enumerate(records):
+        rows.append(
+            (
+                rec["doc_row_id"],
+                i,
+                rec["content"],
+                rec["paper_id"],
+            )
+        )
+
+    write_faiss_artifacts(out, index, rows)
+
+    stats: Dict[str, Any] = {
+        "n_vectors": int(index.ntotal),
+        "dimension": int(vectors.shape[1]),
+        "n_source_chunks": len(records),
+        "output_dir": str(out),
+        "faiss_path": str(out / "faiss_index"),
+        "sqlite_path": str(out / "index_store.db"),
+        "embedding_model": model_name,
+        "source_full_text_db": str(kv),
+    }
+    if max_papers is not None:
+        stats["max_papers"] = max_papers
+    return stats
+
+
 # ---------------------------------------------------------------------------
 # Embedding & FAISS
 # ---------------------------------------------------------------------------
@@ -466,6 +600,8 @@ def print_index_summary(stats: Dict[str, Any]) -> None:
     print(f"  Output directory:    {stats['output_dir']}")
     print(f"  FAISS file:          {stats['faiss_path']}")
     print(f"  SQLite store:        {stats['sqlite_path']}")
+    if stats.get("max_papers") is not None:
+        print(f"  max_papers (subset): {stats['max_papers']}")
     print("=" * 60 + "\n")
 
 

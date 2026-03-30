@@ -80,7 +80,17 @@ class StrategyBasicRAG:
 
         # Initialize LLM agent
         if isinstance(agent_model, str):
-            if "falcon" in agent_model.lower() and falcon_api_key:
+            _ml = agent_model.lower()
+            if "deepseek" in _ml and falcon_api_key:
+                from api_agent import DeepSeekAgent
+
+                self.agent = DeepSeekAgent(falcon_api_key, model=agent_model)
+                logger.info(f"Using DeepSeek API agent (model={agent_model})")
+            elif "deepseek" in _ml and not falcon_api_key:
+                raise ValueError(
+                    "DeepSeek model requires an API key: set --falcon_api_key or DEEPSEEK_API_KEY."
+                )
+            elif "falcon" in _ml and falcon_api_key:
                 # Initialize Falcon agent if using Falcon API
                 from api_agent import FalconAgent
 
@@ -433,14 +443,14 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="tiiuae/Falcon3-10B-Instruct",
-        help="Model for LLM agent",
+        default="deepseek-chat",
+        help="LLM: deepseek-chat / deepseek-reasoner (API) or local Hugging Face model id",
     )
     parser.add_argument(
         "--falcon_api_key",
         type=str,
         default=None,
-        help="API key for Falcon API (only needed if using Falcon API)",
+        help="API key for DeepSeek / Falcon (env DEEPSEEK_API_KEY or FALCON_API_KEY if unset)",
     )
     # Strategy parameters
     parser.add_argument(
@@ -538,11 +548,16 @@ def main():
     logger.info(
         f"Initializing strategy-aware basic RAG with {args.retriever_type.upper()} and top_k={args.top_k}..."
     )
+    llm_key = (
+        args.falcon_api_key
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("FALCON_API_KEY")
+    )
     rag = StrategyBasicRAG(
         retriever,
         agent_model=args.model,
         top_k=args.top_k,
-        falcon_api_key=args.falcon_api_key,
+        falcon_api_key=llm_key,
         strategy=args.retriever_type,
     )
 

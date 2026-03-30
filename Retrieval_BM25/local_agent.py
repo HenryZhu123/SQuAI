@@ -81,10 +81,13 @@ class LLMAgent:
         else:
             torch_dtype = torch.float32
 
-        # Load model
+        self.device = (
+            "cuda" if torch.cuda.is_available() and device == "cuda" else "cpu"
+        )
+        target = torch.device(self.device)
+
         model_kwargs = {
             "torch_dtype": torch_dtype,
-            "device_map": "auto",
             "trust_remote_code": True,
         }
 
@@ -92,10 +95,7 @@ class LLMAgent:
             model_kwargs["use_auth_token"] = token
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-
-        self.device = (
-            "cuda" if torch.cuda.is_available() and device == "cuda" else "cpu"
-        )
+        self.model = self.model.to(target)
 
     def generate(self, prompt, max_new_tokens=1024):
         """Generate text using the local model with proper chat formatting"""
@@ -203,10 +203,14 @@ class SharedModelManager:
         else:
             torch_dtype = torch.float32
 
-        # Load model
+        resolved = (
+            "cuda" if torch.cuda.is_available() and device == "cuda" else "cpu"
+        )
+        self.device = resolved
+        target = torch.device(resolved)
+
         model_kwargs = {
             "torch_dtype": torch_dtype,
-            "device_map": "auto",
             "trust_remote_code": True,
         }
 
@@ -214,6 +218,7 @@ class SharedModelManager:
             model_kwargs["use_auth_token"] = token
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        self.model = self.model.to(target)
 
     def create_agent(self):
         """Create a new LLMAgent using the shared model instance"""

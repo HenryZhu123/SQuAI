@@ -45,28 +45,24 @@ class LLMAgent:
             torch_dtype = torch.float32
             print("Using float32 precision")
 
-        # Load model with optimizations
-        print("Loading model...")
-        if token:
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch_dtype,
-                device_map="auto",  # Automatically optimize GPU usage
-                trust_remote_code=True,  # Required for some models
-                use_auth_token=token,
-            )
-        else:
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch_dtype,
-                device_map="auto",  # Automatically optimize GPU usage
-                trust_remote_code=True,  # Required for some models
-            )
-
-        # Save device information
+        # Explicit single device (no device_map — avoids accelerate / multi-GPU dispatch)
         self.device = (
             "cuda" if torch.cuda.is_available() and device == "cuda" else "cpu"
         )
+        target = torch.device(self.device)
+
+        print("Loading model...")
+        load_kw = dict(torch_dtype=torch_dtype, trust_remote_code=True)
+        if token:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                **load_kw,
+                use_auth_token=token,
+            )
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(model_name, **load_kw)
+
+        self.model = self.model.to(target)
         print(f"Model loaded on {self.device}")
 
     def generate(self, prompt, max_new_tokens=1024):

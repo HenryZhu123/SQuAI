@@ -841,22 +841,18 @@ class Enhanced4AgentRAG:
         if isinstance(agent_model, str):
             _ml = agent_model.lower()
             if "deepseek" in _ml and falcon_api_key:
-                from api_agent import DeepSeekAgent
+                from api_agent import create_four_deepseek_agents
 
-                self.agent1 = DeepSeekAgent(
-                    falcon_api_key, model=agent_model
-                )  # Question Splitter
-                self.agent2 = DeepSeekAgent(
-                    falcon_api_key, model=agent_model
-                )  # Answer Generator
-                self.agent3 = DeepSeekAgent(
-                    falcon_api_key, model=agent_model
-                )  # Document Evaluator
-                self.agent4 = DeepSeekAgent(
-                    falcon_api_key, model=agent_model
-                )  # Final Answer Generator
+                self.agent1, self.agent2, self.agent3, self.agent4 = (
+                    create_four_deepseek_agents(falcon_api_key, agent_model)
+                )
                 logger.info(
                     f"Using DeepSeek API agents for all four roles (model={agent_model})"
+                )
+            elif "deepseek" in _ml and not falcon_api_key:
+                raise ValueError(
+                    "DeepSeek model requires an API key: pass --api_key or set "
+                    "DEEPSEEK_API_KEY (or FALCON_API_KEY for backward compatibility)."
                 )
             elif "falcon" in _ml and falcon_api_key:
                 from api_agent import FalconAgent
@@ -1609,6 +1605,42 @@ def write_enhanced_result_to_json(result, output_file):
     logger.info(f"Enhanced result written to {output_file}")
 
 
+def build_index(
+    full_text_db_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    chunk_size: int = 800,
+    chunk_overlap: int = 120,
+    batch_size: int = 32,
+    embedding_model: Optional[str] = None,
+    device: Optional[str] = None,
+    max_papers: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Build FAISS vector index + index_store.db from the full_text_db KV store.
+
+    Uses the same embedding model and on-disk layout as ``build_index.py`` so
+    ``unified_arxiv_retriever.E5DirectRetriever`` can load the result.
+
+    Defaults:
+        full_text_db_path: config.DB_PATH
+        output_dir: config.E5_INDEX_DIR (e.g. squai_data/faiss_index)
+        max_papers: None (use all papers). If set, only index that many papers
+        (sorted by paper_id) for a smaller / faster index.
+    """
+    from build_index import build_index_from_full_text_db
+
+    return build_index_from_full_text_db(
+        full_text_db_path=full_text_db_path or DB_PATH,
+        output_dir=output_dir or E5_INDEX_DIR,
+        embedding_model=embedding_model,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        batch_size=batch_size,
+        device=device,
+        max_papers=max_papers,
+    )
+
+
 def main():
     """Main function with enhanced 4-agent support"""
 
@@ -1618,8 +1650,9 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="tiiuae/Falcon3-10B-Instruct",
-        help="Model for LLM agents",
+        default="deepseek-chat",
+        help="LLM id: deepseek-chat / deepseek-reasoner (DeepSeek API) or local HF id; "
+        "use with --api_key or DEEPSEEK_API_KEY",
     )
     parser.add_argument(
         "--n", type=float, default=0.5, help="Adjustment factor for adaptive judge bar"
@@ -1676,10 +1709,67 @@ def main():
         "--api_key",
         type=str,
         default=None,
-        help="API key for Falcon / DeepSeek cloud models (overrides env)",
+        help="API key for DeepSeek / Falcon (default: env DEEPSEEK_API_KEY or FALCON_API_KEY)",
+    )
+    parser.add_argument(
+        "--build_index",
+        action="store_true",
+        help="Build FAISS index from full_text_db (see --db_path / config DB_PATH) and exit",
+    )
+    parser.add_argument(
+        "--faiss_output_dir",
+        type=str,
+        default=None,
+        help="Where to write faiss_index + index_store.db (default: config E5_INDEX_DIR)",
+    )
+    parser.add_argument(
+        "--index_chunk_size",
+        type=int,
+        default=800,
+        help="Chunk size when building vector index from full_text_db",
+    )
+    parser.add_argument(
+        "--index_chunk_overlap",
+        type=int,
+        default=120,
+        help="Chunk overlap for vector index build",
+    )
+    parser.add_argument(
+        "--index_batch_size",
+        type=int,
+        default=32,
+        help="Embedding batch size for vector index build",
+    )
+    parser.add_argument(
+        "--index_max_papers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only index the first N papers (sorted by paper_id), for a smaller/faster index; omit for all papers",
     )
 
     args = parser.parse_args()
+
+    if args.build_index:
+        from build_index import print_index_summary
+
+        ft_path = args.db_path if args.db_path else DB_PATH
+        fo_path = args.faiss_output_dir if args.faiss_output_dir else E5_INDEX_DIR
+        logger.info("Building FAISS index from full_text_db=%s -> %s", ft_path, fo_path)
+        try:
+            stats = build_index(
+                full_text_db_path=ft_path,
+                output_dir=fo_path,
+                chunk_size=args.index_chunk_size,
+                chunk_overlap=args.index_chunk_overlap,
+                batch_size=args.index_batch_size,
+                max_papers=args.index_max_papers,
+            )
+        except Exception as e:
+            logger.exception("build_index failed: %s", e)
+            return 1
+        print_index_summary(stats)
+        return 0
 
     # Use custom DB path if provided, otherwise use config default
     db_path_to_use = args.db_path if args.db_path else DB_PATH
@@ -1737,7 +1827,7 @@ def main():
 
         try:
             should_split, sub_questions = ragent.question_splitter.analyze_and_split(
-                query
+                args.single_question
             )
             cited_answer, references, debug_info = ragent.answer_query(args.single_question, db, should_split, sub_questions)
             process_time = time.time() - start_time
@@ -1808,7 +1898,7 @@ def main():
 
         try:
             should_split, sub_questions = ragent.question_splitter.analyze_and_split(
-                query
+                item["question"]
             )
             cited_answer, references, debug_info = ragent.answer_query(item["question"], db, should_split, sub_questions)
             process_time = time.time() - start_time
