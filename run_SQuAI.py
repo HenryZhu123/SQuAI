@@ -6,14 +6,12 @@ Enhanced 4-Agent RAG System with Question Splitting and Parallel Processing
 - Agent 3: Document Evaluator
 - Agent 4: Final Answer Generator with citations
 """
-import plyvel
 import argparse
 import json
 import time
 import datetime
 import os
 
-import query
 from tqdm import tqdm
 import logging
 import numpy as np
@@ -29,6 +27,7 @@ from performance_monitor import monitor, time_block
 
 # Import configuration
 from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH
+from sqlite_compat import open_db
 
 
 # Your existing logging setup (unchanged)
@@ -1687,14 +1686,14 @@ def main():
 
     logger.info(f"Opening database at {db_path_to_use}...")
     try:
-        db = plyvel.DB(db_path_to_use, create_if_missing=False)
+        db = open_db(db_path_to_use, create_if_missing=False)
         logger.info("Database opened successfully")
     except Exception as e:
         logger.error(f"Failed to open database: {e}")
         # Try alternative path if permission denied
         alt_db_path = os.path.join(os.path.dirname(__file__), "local_db")
         logger.info(f"Trying alternative database path: {alt_db_path}")
-        db = plyvel.DB(alt_db_path, create_if_missing=True)
+        db = open_db(alt_db_path, create_if_missing=True)
 
     retriever = initialize_retriever(
         args.retriever_type,

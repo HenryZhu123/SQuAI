@@ -3,9 +3,9 @@ import os
 import socket
 from fastapi import FastAPI
 from pydantic import BaseModel
-import plyvel
 from run_SQuAI import Enhanced4AgentRAG, initialize_retriever
 from config import DB_PATH, BM25_INDEX_DIR, E5_INDEX_DIR
+from sqlite_compat import open_db
 from typing import Optional, List
 
 # Import language detection library
@@ -51,7 +51,7 @@ def startup_event():
     global db, ragent
     write_host_and_port_file()
     try:
-        db = plyvel.DB(DB_PATH, create_if_missing=False)
+        db = open_db(DB_PATH, create_if_missing=False)
         retriever = initialize_retriever(
             retriever_type=DEFAULT_RETRIEVER,
             e5_index_dir=E5_INDEX_DIR,
@@ -67,7 +67,7 @@ def startup_event():
             index_dir=BM25_INDEX_DIR,
             max_workers=6,
         )
-    except plyvel._plyvel.IOError as e:
+    except OSError as e:
         print(f"Error: {e}. Cannot continue.")
         sys.exit(1)
 
