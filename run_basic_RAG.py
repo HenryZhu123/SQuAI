@@ -18,6 +18,7 @@ import random
 import string
 
 from get_paths import get_main_data_dir
+from key_resolver import resolve_api_key
 
 MAIN_DATA_DIR = get_main_data_dir()
 
@@ -548,11 +549,7 @@ def main():
     logger.info(
         f"Initializing strategy-aware basic RAG with {args.retriever_type.upper()} and top_k={args.top_k}..."
     )
-    llm_key = (
-        args.falcon_api_key
-        or os.environ.get("DEEPSEEK_API_KEY")
-        or os.environ.get("FALCON_API_KEY")
-    )
+    llm_key = resolve_api_key(args.falcon_api_key)
     rag = StrategyBasicRAG(
         retriever,
         agent_model=args.model,

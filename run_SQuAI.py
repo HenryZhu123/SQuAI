@@ -28,6 +28,7 @@ from performance_monitor import monitor, time_block
 # Import configuration
 from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH
 from sqlite_compat import open_db
+from key_resolver import resolve_api_key
 
 
 # Your existing logging setup (unchanged)
@@ -1878,11 +1879,7 @@ def main():
     logger.info(
         f"Initializing enhanced 4-agent RAG with n={args.n}, max_workers={args.max_workers}..."
     )
-    llm_api_key = (
-        args.api_key
-        or os.environ.get("DEEPSEEK_API_KEY")
-        or os.environ.get("FALCON_API_KEY")
-    )
+    llm_api_key = resolve_api_key(args.api_key)
 
     ragent = Enhanced4AgentRAG(
         retriever,

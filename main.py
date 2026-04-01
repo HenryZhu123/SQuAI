@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from run_SQuAI import Enhanced4AgentRAG, initialize_retriever
 from config import DB_PATH, BM25_INDEX_DIR, E5_INDEX_DIR
 from sqlite_compat import open_db
+from key_resolver import resolve_api_key
 from typing import Optional, List
 
 # Import language detection library
@@ -60,9 +61,7 @@ def startup_event():
             top_k=DEFAULT_TOP_K,
             alpha=DEFAULT_ALPHA,
         )
-        llm_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get(
-            "FALCON_API_KEY"
-        )
+        llm_key = resolve_api_key()
         ragent = Enhanced4AgentRAG(
             retriever=retriever,
             agent_model=DEFAULT_MODEL,
