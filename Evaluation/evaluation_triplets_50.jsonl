@@ -1,0 +1,50 @@
+{"query":"What is the title of paper 2212.11739?","ground_truth_doc_id":"2212.11739_4be59cf0bb_c0","answer":"A light Higgs boson in the NMSSM confronted with the CMS di-photon and di-tau excesses"}
+{"query":"Around what mass did CMS report the di-photon excess in 2018?","ground_truth_doc_id":"2212.11739_4be59cf0bb_c1","answer":"Around 95.3 GeV"}
+{"query":"What local significance is reported for the CMS di-photon excess?","ground_truth_doc_id":"2212.11739_4be59cf0bb_c1","answer":"2.8 sigma"}
+{"query":"In the same abstract, what mass region is mentioned for the di-tau excess?","ground_truth_doc_id":"2212.11739_4be59cf0bb_c1","answer":"95 to 100 GeV"}
+{"query":"According to the text, what is the maximum value mentioned for the former constraint?","ground_truth_doc_id":"2212.11739_4be59cf0bb_c2","answer":"About 42% at most"}
+{"query":"What is the title of paper 2212.11764?","ground_truth_doc_id":"2212.11764_77c49a2738_c0","answer":"Normalization and coherence for infinity-type theories"}
+{"query":"What technique is developed in the abstract of paper 2212.11764?","ground_truth_doc_id":"2212.11764_77c49a2738_c0","answer":"A technique for normalization for infinity-type theories"}
+{"query":"What theorem does the normalization property help prove?","ground_truth_doc_id":"2212.11764_77c49a2738_c0","answer":"A coherence theorem"}
+{"query":"The abstract of 2212.11764 refers to what kind of model when stating coherence?","ground_truth_doc_id":"2212.11764_77c49a2738_c0","answer":"The initial model of a given infinity-type theory"}
+{"query":"Which theoretical domain is explicitly named in the title of 2212.11764?","ground_truth_doc_id":"2212.11764_77c49a2738_c0","answer":"Infinity-type theories"}
+{"query":"What is the title of paper 2212.11765?","ground_truth_doc_id":"2212.11765_b0d0bd4f86_c0","answer":"Predicting Companies' ESG Ratings from News Articles Using Multivariate Timeseries Analysis"}
+{"query":"In paper 2212.11765, what does ESG stand for?","ground_truth_doc_id":"2212.11765_b0d0bd4f86_c1","answer":"Environmental, social and governance"}
+{"query":"What source is used in 2212.11765 to predict ESG ratings?","ground_truth_doc_id":"2212.11765_b0d0bd4f86_c0","answer":"News articles"}
+{"query":"Approximately how many U.S. companies are included in the created dataset?","ground_truth_doc_id":"2212.11765_b0d0bd4f86_c12","answer":"About 3,000 U.S. companies"}
+{"query":"Which years are covered by the ESG-related news dataset?","ground_truth_doc_id":"2212.11765_b0d0bd4f86_c12","answer":"2018, 2019, and 2020"}
+{"query":"What is the title of paper 2212.11766?","ground_truth_doc_id":"2212.11766_ae13dfe04b_c0","answer":"Long bet will lose: demystifying seemingly fair gambling via two-armed Futurity bandit"}
+{"query":"What core gambling phenomenon is highlighted in the abstract of 2212.11766?","ground_truth_doc_id":"2212.11766_ae13dfe04b_c1","answer":"Long bet will lose"}
+{"query":"According to the abstract, what eventually happens to persistent gamblers?","ground_truth_doc_id":"2212.11766_ae13dfe04b_c1","answer":"Sooner or later they will lose more to the casino"}
+{"query":"What fairness result is stated for the casino in this study?","ground_truth_doc_id":"2212.11766_ae13dfe04b_c2","answer":"The casino's win rate is greater than 50%"}
+{"query":"What type of bandit is used in the paper's title?","ground_truth_doc_id":"2212.11766_ae13dfe04b_c0","answer":"Two-armed Futurity bandit"}
+{"query":"What is the title of paper 2212.11770?","ground_truth_doc_id":"2212.11770_2bde88997a_c0","answer":"S-Graphs+: Real-time Localization and Mapping leveraging Hierarchical Representations"}
+{"query":"What does the abstract call S-Graphs+ in relation to Situational Graphs?","ground_truth_doc_id":"2212.11770_2bde88997a_c1","answer":"An evolved version of the Situational Graphs"}
+{"query":"What optimization structure is used to jointly model SLAM and scene information?","ground_truth_doc_id":"2212.11770_2bde88997a_c1","answer":"A single optimizable factor graph"}
+{"query":"How many layers are mentioned for the scene model extension?","ground_truth_doc_id":"2212.11770_2bde88997a_c3","answer":"A four-layered scene model"}
+{"query":"In what packaging format do the authors say they make the algorithm available?","ground_truth_doc_id":"2212.11770_2bde88997a_c3","answer":"As a docker file"}
+{"query":"What is the title of paper 2212.11772?","ground_truth_doc_id":"2212.11772_7b230131b8_c0","answer":"A Self-Adjusting Fusion Representation Learning Model for Unaligned Text-Audio Sequences"}
+{"query":"Which two modalities are explicitly named in the title of 2212.11772?","ground_truth_doc_id":"2212.11772_7b230131b8_c0","answer":"Text and audio"}
+{"query":"What kind of sequences does the model in 2212.11772 target?","ground_truth_doc_id":"2212.11772_7b230131b8_c0","answer":"Unaligned text-audio sequences"}
+{"query":"What task is discussed where inter-modal interaction between text and audio is important?","ground_truth_doc_id":"2212.11772_7b230131b8_c4","answer":"Multimodal sentiment analysis"}
+{"query":"According to the text, what does text-audio inter-modal interaction help capture?","ground_truth_doc_id":"2212.11772_7b230131b8_c4","answer":"More comprehensive emotional information"}
+{"query":"What is the title of paper 2212.11773?","ground_truth_doc_id":"2212.11773_74d0a5c6a8_c0","answer":"A mapping approach to surface hopping"}
+{"query":"Which two methods does MASH aim to combine the strengths of?","ground_truth_doc_id":"2212.11773_74d0a5c6a8_c1","answer":"Fewest-switches surface hopping (FSSH) and quasiclassical mapping dynamics"}
+{"query":"What acronym is used for the mapping approach to surface hopping?","ground_truth_doc_id":"2212.11773_74d0a5c6a8_c1","answer":"MASH"}
+{"query":"What kind of trajectory method is described in the abstract of 2212.11773?","ground_truth_doc_id":"2212.11773_74d0a5c6a8_c1","answer":"A nonadiabatic classical-trajectory approach"}
+{"query":"In 2212.11773, what does FSSH stand for?","ground_truth_doc_id":"2212.11773_74d0a5c6a8_c5","answer":"Fewest-switches surface hopping"}
+{"query":"What is the title of paper 2212.11774?","ground_truth_doc_id":"2212.11774_b4510621e3_c0","answer":"A literature review on different types of empirically evaluated bug localization approaches"}
+{"query":"How is bug localization defined in the introduction?","ground_truth_doc_id":"2212.11774_b4510621e3_c4","answer":"The automated process of discovering files that contain bugs, based on a bug report"}
+{"query":"According to the bug localization section, what is bug localization also referred to as?","ground_truth_doc_id":"2212.11774_b4510621e3_c6","answer":"Fault localization"}
+{"query":"What input artifact is explicitly used to localize bugs in this paper?","ground_truth_doc_id":"2212.11774_b4510621e3_c6","answer":"A bug report"}
+{"query":"Why are open-source projects often used in empirical evaluations according to the text?","ground_truth_doc_id":"2212.11774_b4510621e3_c7","answer":"Because they are easily accessible"}
+{"query":"What is the title of paper 2212.11780?","ground_truth_doc_id":"2212.11780_85b7b36afa_c0","answer":"First-order sentences in random groups II: forall-exists sentences"}
+{"query":"Which random-group framework is explicitly named in the abstract?","ground_truth_doc_id":"2212.11780_85b7b36afa_c0","answer":"Gromov's density model"}
+{"query":"What density threshold is stated in the abstract condition?","ground_truth_doc_id":"2212.11780_85b7b36afa_c0","answer":"d < 1/16"}
+{"query":"With what probability phrase is the first-order result qualified?","ground_truth_doc_id":"2212.11780_85b7b36afa_c0","answer":"With overwhelming probability"}
+{"query":"In this paper, what class of logical statements is highlighted in the title?","ground_truth_doc_id":"2212.11780_85b7b36afa_c0","answer":"Forall-exists first-order sentences"}
+{"query":"What is the title of paper 2212.11783?","ground_truth_doc_id":"2212.11783_34d705f9c4_c0","answer":"Analytical and numerical relaxation results for models in soil mechanics"}
+{"query":"What type of plasticity model is introduced in the abstract of 2212.11783?","ground_truth_doc_id":"2212.11783_34d705f9c4_c0","answer":"A variational model of pressure-dependent plasticity"}
+{"query":"What time formulation is used in that pressure-dependent plasticity model?","ground_truth_doc_id":"2212.11783_34d705f9c4_c0","answer":"A time-incremental setting"}
+{"query":"What new element is claimed regarding dissipation in 2212.11783?","ground_truth_doc_id":"2212.11783_34d705f9c4_c0","answer":"A novel formulation of the dissipation potential"}
+{"query":"What process does the text say cannot explain complex structures in classical soil models?","ground_truth_doc_id":"2212.11783_34d705f9c4_c1","answer":"Classical pressure-dependent linearized plasticity"}
