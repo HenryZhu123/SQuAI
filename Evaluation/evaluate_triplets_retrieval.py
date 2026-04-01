@@ -22,7 +22,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 
@@ -65,6 +65,19 @@ def _load_triplets(path: str, max_samples: Optional[int] = None) -> List[Triplet
     return items
 
 
+def _candidate_gt_ids(ground_truth_doc_id: str) -> Tuple[str, str]:
+    """
+    Return (raw_id, paper_level_id).
+    Triplets are currently chunk-level ids like:
+      2212.11739_4be59cf0bb_c1
+    while run_SQuAI retriever returns paper-level ids like:
+      2212.11739
+    """
+    raw = str(ground_truth_doc_id).strip()
+    paper_level = raw.split("_", 1)[0] if "_" in raw else raw
+    return raw, paper_level
+
+
 def evaluate(
     triplets: List[Triplet],
     retriever_type: str,
@@ -76,14 +89,16 @@ def evaluate(
     if root not in sys.path:
         sys.path.insert(0, root)
 
-    from config import E5_INDEX_DIR, BM25_INDEX_DIR
-    from hybrid_retriever import Retriever
+    from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH
+    from run_SQuAI import initialize_retriever
 
-    retriever = Retriever(
-        e5_index_directory=E5_INDEX_DIR,
-        bm25_index_directory=BM25_INDEX_DIR,
+    # Build retriever through run_SQuAI API as requested.
+    retriever = initialize_retriever(
+        retriever_type=retriever_type,
+        e5_index_dir=E5_INDEX_DIR,
+        bm25_index_dir=BM25_INDEX_DIR,
+        db_path=DB_PATH,
         top_k=top_k,
-        strategy=retriever_type,
         alpha=alpha,
     )
 
@@ -92,29 +107,44 @@ def evaluate(
     reciprocal_ranks = []
     misses = []
 
-    for t in triplets:
-        try:
-            results = retriever.retrieve_abstracts(t.query, top_k=top_k)
-            ranked_doc_ids = [doc_id for _, doc_id in results]
-        except Exception as e:
-            ranked_doc_ids = []
-            misses.append({"query": t.query, "doc_id": t.ground_truth_doc_id, "error": str(e)})
+    try:
+        for t in triplets:
+            try:
+                results = retriever.retrieve_abstracts(t.query, top_k=top_k)
+                ranked_doc_ids = [doc_id for _, doc_id in results]
+            except Exception as e:
+                ranked_doc_ids = []
+                misses.append(
+                    {"query": t.query, "doc_id": t.ground_truth_doc_id, "error": str(e)}
+                )
 
-        gt = t.ground_truth_doc_id
-        hit = gt in ranked_doc_ids
-        recall_at_k = 1.0 if hit else 0.0
-        precision_at_k = (1.0 / float(top_k)) if hit else 0.0
+            gt_raw, gt_paper = _candidate_gt_ids(t.ground_truth_doc_id)
+            candidate_ids = [gt_raw]
+            if gt_paper != gt_raw:
+                candidate_ids.append(gt_paper)
 
-        if hit:
-            rank = ranked_doc_ids.index(gt) + 1  # 1-based
-            rr = 1.0 / float(rank)
-        else:
-            rr = 0.0
-            misses.append({"query": t.query, "doc_id": gt})
+            hit_positions = [ranked_doc_ids.index(cid) for cid in candidate_ids if cid in ranked_doc_ids]
+            hit = len(hit_positions) > 0
 
-        recalls.append(recall_at_k)
-        precisions.append(precision_at_k)
-        reciprocal_ranks.append(rr)
+            recall_at_k = 1.0 if hit else 0.0
+            precision_at_k = (1.0 / float(top_k)) if hit else 0.0
+
+            if hit:
+                rank = min(hit_positions) + 1  # 1-based
+                rr = 1.0 / float(rank)
+            else:
+                rr = 0.0
+                misses.append({"query": t.query, "doc_id": gt_raw, "paper_id": gt_paper})
+
+            recalls.append(recall_at_k)
+            precisions.append(precision_at_k)
+            reciprocal_ranks.append(rr)
+    finally:
+        if hasattr(retriever, "close"):
+            try:
+                retriever.close()
+            except Exception:
+                pass
 
     n = len(triplets)
     metrics = {
@@ -122,6 +152,7 @@ def evaluate(
         "retriever_type": retriever_type,
         "top_k": top_k,
         "alpha": alpha,
+        "ground_truth_matching": "raw chunk id OR paper-level id parsed from chunk id",
         f"recall@{top_k}": (sum(recalls) / n) if n else 0.0,
         f"precision@{top_k}": (sum(precisions) / n) if n else 0.0,
         "MRR": (sum(reciprocal_ranks) / n) if n else 0.0,
