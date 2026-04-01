@@ -1,9 +1,12 @@
 import os
 import torch
 
-# Windows: directory containing faiss_index/, bm25_retriever/, full_text_db/
-# Change this if your indices and DB are stored elsewhere.
-MAIN_DATA_DIR = r"D:\SQuAI\SQuAI-main\squai_data"
+# Linux: directory containing faiss_index/, bm25_retriever/, full_text_db/
+# Default layout: project at /home/ubuntu/SQuAI with data in squai_data/
+# Override with env SQUAI_DATA_DIR (same as get_paths.get_main_data_dir).
+_MAIN_DEFAULT = "/home/ubuntu/SQuAI/squai_data"
+_raw = (os.environ.get("SQUAI_DATA_DIR") or "").strip()
+MAIN_DATA_DIR = os.path.abspath(_raw) if _raw else _MAIN_DEFAULT
 
 EMBEDDING_MODEL = "intfloat/e5-large-v2"
 MODEL_FORMAT = "sentence_transformers"

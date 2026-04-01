@@ -103,6 +103,33 @@ def get_ws_list_paths(min_days=8):
     return valid_workspaces[0][1]
 
 def get_main_data_dir():
+    """
+    Resolve the directory that holds faiss_index/, bm25_retriever/, full_text_db/.
+
+    Priority:
+      1. Env SQUAI_DATA_DIR (if it exists and is a directory)
+      2. Standard Ubuntu paths under /home/ubuntu/SQuAI/
+      3. HPC workspace from ws_list (if available)
+      4. Legacy cluster fallbacks
+    """
+    env_path = os.environ.get("SQUAI_DATA_DIR")
+    if env_path:
+        env_path = os.path.abspath(env_path.strip())
+        if os.path.isdir(env_path):
+            print(f"get_main_data_dir: Using SQUAI_DATA_DIR={env_path}")
+            return env_path
+        sys.stderr.write(
+            f"Warning: SQUAI_DATA_DIR is set but not a directory: {env_path!r}\n"
+        )
+
+    for ubuntu_candidate in (
+        "/home/ubuntu/SQuAI/squai_data",
+        "/home/ubuntu/SQuAI/SQuAI-main/squai_data",
+    ):
+        if os.path.isdir(ubuntu_candidate):
+            print(f"get_main_data_dir: Using {ubuntu_candidate}")
+            return ubuntu_candidate
+
     # Erst ws_list versuchen
     ws_path = get_ws_list_paths(min_days=8)
     if ws_path and os.path.isdir(ws_path):
