@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
-Build SQuAI full-text key-value store (LevelDB or SQLite compat) from local JSONL corpora.
+Build SQuAI full-text key-value store from local JSONL corpora.
+
+Backends (via sqlite_compat.open_db):
+  - PostgreSQL: set ``FULLTEXT_PG_DSN_DEFAULT`` in config.py and/or env ``SQUAI_FULLTEXT_PG_DSN``.
+    Table: ``FULLTEXT_PG_TABLE_DEFAULT`` / ``SQUAI_FULLTEXT_PG_TABLE``. Optional: ``SQUAI_PG_INGEST_BATCH``.
+    Note: ``/var/lib/postgresql/16/main`` is the server cluster data directory on Ubuntu; the app
+    connects with a DSN, not by writing to that path.
+  - Otherwise: LevelDB (plyvel) or SQLite under ``DB_PATH`` / ``--output_dir``.
 
 Expected JSONL format: unarXive-like records with paper_id, metadata.title, abstract,
 and optional body_text[]. Keys match BM25 metadata paper_id for retrieval alignment.
@@ -8,6 +15,8 @@ and optional body_text[]. Keys match BM25 metadata paper_id for retrieval alignm
 Usage (from repo root):
   python scripts/build_full_text_db.py
   python scripts/build_full_text_db.py --jsonl squai_data/test/arXiv_src_2212_086.jsonl
+  SQUAI_FULLTEXT_PG_DSN=postgresql://... python scripts/build_full_text_db.py --jsonl data.jsonl
+  # Or set FULLTEXT_PG_DSN_DEFAULT in config.py and run without env.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from config import DB_PATH
+from config import DB_PATH, FULLTEXT_PG_DSN, FULLTEXT_PG_TABLE
 from sqlite_compat import open_db
 
 logger = logging.getLogger("build_full_text_db")
@@ -122,18 +131,22 @@ def build_full_text_db(
 ) -> Dict[str, int]:
     """
     Write all papers from given JSONL files into the KV store at config DB_PATH
-    (or output_dir if provided).
+    (or output_dir if provided), or into PostgreSQL when FULLTEXT_PG_DSN is set.
     """
+    use_postgres = bool((FULLTEXT_PG_DSN or "").strip())
     out = output_dir or DB_PATH
-    os.makedirs(out, exist_ok=True)
 
-    # Remove misplaced corpus files inside DB dir (e.g. *.jsonl copied by mistake)
-    for stray in glob.glob(os.path.join(out, "*.jsonl")):
-        try:
-            os.remove(stray)
-            logger.info("Removed stray JSONL from DB directory: %s", stray)
-        except OSError as e:
-            logger.warning("Could not remove %s: %s", stray, e)
+    if not use_postgres:
+        os.makedirs(out, exist_ok=True)
+        # Remove misplaced corpus files inside DB dir (e.g. *.jsonl copied by mistake)
+        for stray in glob.glob(os.path.join(out, "*.jsonl")):
+            try:
+                os.remove(stray)
+                logger.info("Removed stray JSONL from DB directory: %s", stray)
+            except OSError as e:
+                logger.warning("Could not remove %s: %s", stray, e)
+    else:
+        logger.info("Using PostgreSQL (FULLTEXT_PG_DSN); file output_dir is not used for storage.")
 
     stats = {"written": 0, "skipped": 0, "files": 0}
     db = open_db(out, create_if_missing=True)
@@ -167,7 +180,8 @@ def main() -> int:
         "--output_dir",
         type=str,
         default=None,
-        help=f"KV store directory (default: config DB_PATH = {DB_PATH})",
+        help=f"KV store directory when not using PostgreSQL (default: config DB_PATH = {DB_PATH}). "
+        f"Ignored when FULLTEXT_PG_DSN is set (config or env).",
     )
     args = parser.parse_args()
 
@@ -186,7 +200,10 @@ def main() -> int:
     print(f"  JSONL files processed: {stats['files']}")
     print(f"  Records written:        {stats['written']}")
     print(f"  Lines skipped:          {stats['skipped']}")
-    print(f"  Output directory:       {args.output_dir or DB_PATH}")
+    if (FULLTEXT_PG_DSN or "").strip():
+        print(f"  Backend:                PostgreSQL (table {FULLTEXT_PG_TABLE!r})")
+    else:
+        print(f"  Output directory:       {args.output_dir or DB_PATH}")
     return 0
 
 

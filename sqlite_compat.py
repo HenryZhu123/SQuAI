@@ -12,6 +12,8 @@ import os
 import sqlite3
 from typing import Any, Iterator, Optional, Tuple, Union
 
+from config import FULLTEXT_PG_DSN
+
 # Prefer native LevelDB when the extension is installed (Linux / many CI images).
 try:
     import plyvel  # type: ignore
@@ -118,14 +120,34 @@ def open_db(
     **kwargs: Any,
 ) -> Any:
     """
-    Open a LevelDB-backed database when plyvel is available; otherwise SQLiteDB.
+    Open a full-text KV backend:
+
+    - If ``config.FULLTEXT_PG_DSN`` is non-empty (set ``FULLTEXT_PG_DSN_DEFAULT`` in
+      config.py or env ``SQUAI_FULLTEXT_PG_DSN``): PostgreSQL (see postgres_kv.py).
+    - Else if plyvel is available: LevelDB at ``path``.
+    - Else: SQLiteDB under ``path`` (``_sqkv.sqlite``).
 
     Parameters mirror plyvel.DB(path, create_if_missing=..., **kwargs) for the
     native path; extra kwargs are forwarded only to plyvel.
 
     Returns:
-        plyvel.DB or SQLiteDB instance.
+        PostgresKV, plyvel.DB, or SQLiteDB instance.
     """
+    pg_dsn = (FULLTEXT_PG_DSN or "").strip()
+    if pg_dsn:
+        try:
+            from postgres_kv import PostgresKV, postgres_table_from_config
+        except ImportError as e:
+            raise ImportError(
+                "FULLTEXT_PG_DSN is set but psycopg2 is not installed. "
+                "Install with: pip install psycopg2-binary"
+            ) from e
+        return PostgresKV(
+            pg_dsn,
+            table=postgres_table_from_config(),
+            create_if_missing=create_if_missing,
+        )
+
     path_str = os.path.abspath(os.fspath(path))
 
     if HAS_PLYVEL:
