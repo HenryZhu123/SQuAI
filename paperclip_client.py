@@ -16,6 +16,13 @@ _ID_KEYVAL_RE = re.compile(
 )
 _PMID_RE = re.compile(r"\bpmid\s*[:#]?\s*([0-9]{6,10})\b", re.IGNORECASE)
 _PMCID_RE = re.compile(r"\bpmcid\s*[:#]?\s*(PMC[0-9]+)\b", re.IGNORECASE)
+# Standalone PMC article ids (e.g. "PMC10867117 · Frontiers ...")
+_PMC_STANDALONE_RE = re.compile(r"\b(PMC\d+)\b", re.IGNORECASE)
+# bioRxiv / medRxiv style ids (e.g. "bio_998895f972a1 · bioRxiv · ...")
+_BIO_PREPRINT_RE = re.compile(r"\b(bio_[A-Za-z0-9]+)\b")
+_MEDRXIV_PREPRINT_RE = re.compile(r"\b(medrxiv_[A-Za-z0-9]+)\b", re.IGNORECASE)
+# Middle dot (U+00B7) metadata line: "<paper_id> · venue · date"
+_MIDDLE_DOT_SPLIT_RE = re.compile(r"\s*[\u00b7]\s*")
 
 
 @dataclass
@@ -262,6 +269,25 @@ class PaperclipClient:
             )
         return out
 
+    def _id_from_middle_dot_metadata_line(self, text: str) -> Optional[str]:
+        """Paperclip human output: '<paper_id> · journal · YYYY-MM-DD' on one line."""
+        for raw in text.splitlines():
+            line = raw.strip()
+            if "\u00b7" not in line:
+                continue
+            parts = _MIDDLE_DOT_SPLIT_RE.split(line, maxsplit=1)
+            head = parts[0].strip() if parts else ""
+            if not head:
+                continue
+            m_pmc = re.fullmatch(r"(PMC)(\d+)", head, flags=re.IGNORECASE)
+            if m_pmc:
+                return "PMC" + m_pmc.group(2)
+            if _BIO_PREPRINT_RE.fullmatch(head):
+                return head
+            if _MEDRXIV_PREPRINT_RE.fullmatch(head):
+                return head.lower() if head.lower().startswith("medrxiv_") else head
+        return None
+
     def _extract_id_from_text(self, text: str) -> Optional[str]:
         m = _PAPERS_PATH_RE.search(text)
         if m:
@@ -275,6 +301,18 @@ class PaperclipClient:
         if m:
             return m.group(0)
 
+        m = _PMC_STANDALONE_RE.search(text)
+        if m:
+            return m.group(1).upper()
+
+        m = _BIO_PREPRINT_RE.search(text)
+        if m:
+            return m.group(1)
+
+        m = _MEDRXIV_PREPRINT_RE.search(text)
+        if m:
+            return m.group(1)
+
         m = _PMCID_RE.search(text)
         if m:
             return m.group(1)
@@ -282,6 +320,10 @@ class PaperclipClient:
         m = _PMID_RE.search(text)
         if m:
             return m.group(1)
+
+        mid = self._id_from_middle_dot_metadata_line(text)
+        if mid:
+            return mid
 
         return None
 
