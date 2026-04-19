@@ -9,6 +9,13 @@ logger = logging.getLogger(__name__)
 
 _ARXIV_ID_RE = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b")
 _PAPERS_PATH_RE = re.compile(r"/papers/([^/\s]+)")
+_NUMBERED_TITLE_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$")
+_ID_KEYVAL_RE = re.compile(
+    r"\b(?:paper[_ -]?id|doc(?:ument)?[_ -]?id|id)\s*[:=]\s*([A-Za-z0-9._:-]+)",
+    re.IGNORECASE,
+)
+_PMID_RE = re.compile(r"\bpmid\s*[:#]?\s*([0-9]{6,10})\b", re.IGNORECASE)
+_PMCID_RE = re.compile(r"\bpmcid\s*[:#]?\s*(PMC[0-9]+)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -169,10 +176,27 @@ class PaperclipClient:
         )
 
     def _parse_lines(self, text: str) -> List[PaperclipSearchResult]:
+        # Parse "numbered result blocks" first (matches paperclip's rich text output):
+        # Found 92 papers ...
+        # 1. <title>
+        #    <authors>
+        #    <venue/date>
+        #    <url>
+        #    "<snippet>"
+        blocks = self._split_numbered_blocks(text)
+        if blocks:
+            block_items = self._parse_numbered_blocks(blocks)
+            if block_items:
+                return block_items
+
+        # Fallback for simpler outputs: parse line-by-line but with strict ID rules only.
         out: List[PaperclipSearchResult] = []
         for raw in text.splitlines():
             line = raw.strip()
             if not line:
+                continue
+            # Skip known non-result header lines.
+            if line.lower().startswith("found ") and " paper" in line.lower():
                 continue
             paper_id = self._extract_id_from_line(line)
             if not paper_id:
@@ -188,15 +212,79 @@ class PaperclipClient:
             )
         return out
 
-    def _extract_id_from_line(self, line: str) -> Optional[str]:
-        m = _PAPERS_PATH_RE.search(line)
+    def _split_numbered_blocks(self, text: str) -> List[List[str]]:
+        blocks: List[List[str]] = []
+        current: List[str] = []
+        for raw in text.splitlines():
+            line = raw.rstrip()
+            if not line.strip():
+                continue
+            if _NUMBERED_TITLE_RE.match(line):
+                if current:
+                    blocks.append(current)
+                current = [line]
+            elif current:
+                current.append(line)
+        if current:
+            blocks.append(current)
+        return blocks
+
+    def _parse_numbered_blocks(self, blocks: List[List[str]]) -> List[PaperclipSearchResult]:
+        out: List[PaperclipSearchResult] = []
+        for block in blocks:
+            head = block[0].strip()
+            m = _NUMBERED_TITLE_RE.match(head)
+            if not m:
+                continue
+            title = m.group(2).strip()
+            body = "\n".join(block)
+            paper_id = self._extract_id_from_text(body)
+            if not paper_id:
+                # Intentionally skip result block without trusted id to avoid false positives.
+                logger.debug("paperclip parse: skip block without trusted id: %s", title[:80])
+                continue
+
+            snippet = ""
+            for ln in block[1:]:
+                s = ln.strip()
+                if s.startswith('"') and s.endswith('"') and len(s) >= 2:
+                    snippet = s.strip('"')
+                    break
+            if not snippet:
+                snippet = title
+            out.append(
+                PaperclipSearchResult(
+                    paper_id=paper_id,
+                    snippet=snippet,
+                    title=title,
+                    raw_line=body[:1000],
+                )
+            )
+        return out
+
+    def _extract_id_from_text(self, text: str) -> Optional[str]:
+        m = _PAPERS_PATH_RE.search(text)
         if m:
             return m.group(1)
-        m = _ARXIV_ID_RE.search(line)
+
+        m = _ID_KEYVAL_RE.search(text)
+        if m:
+            return m.group(1)
+
+        m = _ARXIV_ID_RE.search(text)
         if m:
             return m.group(0)
-        # Last resort: first token before tab/pipe/space, if it looks id-like.
-        token = re.split(r"[\t| ]+", line, maxsplit=1)[0].strip()
-        if token and re.match(r"^[A-Za-z0-9._:-]+$", token):
-            return token
+
+        m = _PMCID_RE.search(text)
+        if m:
+            return m.group(1)
+
+        m = _PMID_RE.search(text)
+        if m:
+            return m.group(1)
+
         return None
+
+    def _extract_id_from_line(self, line: str) -> Optional[str]:
+        # Strict extraction only (no generic "first token" fallback).
+        return self._extract_id_from_text(line)
