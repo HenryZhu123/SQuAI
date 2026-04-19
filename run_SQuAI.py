@@ -26,7 +26,13 @@ import multiprocessing as mp
 from performance_monitor import monitor, time_block
 
 # Import configuration
-from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH, PAPERCLIP_AGENT2_ENABLED
+from config import (
+    E5_INDEX_DIR,
+    BM25_INDEX_DIR,
+    DB_PATH,
+    PAPERCLIP_AGENT2_ENABLED,
+    AGENT4_MAX_NEW_TOKENS,
+)
 from sqlite_compat import open_db
 from key_resolver import resolve_api_key
 
@@ -929,7 +935,7 @@ Is this document relevant and supportive for answering the question?"""
     def _prepare_documents_for_agent4(
         self,
         full_texts: List[Tuple[str, str]],
-        citation_handler,
+        citation_handler=None,
         was_split: bool = False,
     ) -> List[str]:
         """
@@ -1046,27 +1052,21 @@ Is this document relevant and supportive for answering the question?"""
                 )
                 break
 
-            # Add document with citation
-            citation_num = citation_handler.add_document(condensed_text, doc_id)
-
-            # Get paper info for better document labeling
-            paper_info = citation_handler.citation_to_doc[citation_num]["paper_info"]
-            doc_title = (
-                paper_info["title"][:80] + "..."
-                if len(paper_info["title"]) > 80
-                else paper_info["title"]
-            )
-
-            formatted_doc = (
-                f'Document [{citation_num}] - "{doc_title}":\n{condensed_text}'
-            )
+            # Add plain document block (no citation indexing in prompt).
+            doc_label = documents_used + 1
+            doc_title = PaperTitleExtractor.extract_title_from_text(condensed_text, doc_id)
+            if not doc_title:
+                doc_title = "Untitled"
+            if len(doc_title) > 80:
+                doc_title = doc_title[:80] + "..."
+            formatted_doc = f'Document {doc_label} - "{doc_title}":\n{condensed_text}'
             docs_with_citations.append(formatted_doc)
 
             total_chars += estimated_doc_size
             documents_used += 1
 
             logger.info(
-                f"  Added doc [{citation_num}]: {doc_title[:60]}... ({len(condensed_text)} chars)"
+                f"  Added doc {doc_label}: {doc_title[:60]}... ({len(condensed_text)} chars)"
             )
 
         logger.info(
@@ -1079,7 +1079,7 @@ Is this document relevant and supportive for answering the question?"""
     def _create_agent4_prompt_with_citations(
         self, original_query, full_texts, citation_handler, was_split: bool = False
     ):
-        """Agent-4 prompt with context-aware document preparation"""
+        """Agent-4 prompt with context-aware document preparation (no citation tags)."""
 
         # Prepare documents with dynamic context management based on question splitting
         docs_with_citations = self._prepare_documents_for_agent4(
@@ -1088,34 +1088,20 @@ Is this document relevant and supportive for answering the question?"""
 
         docs_text = "\n\n" + "=" * 50 + "\n\n".join(docs_with_citations)
 
-        # Count available citation numbers
-        available_citations = [str(i) for i in range(1, len(docs_with_citations) + 1)]
-        citation_examples = ", ".join(available_citations)
+        return f"""You are an accurate and reliable AI assistant. Answer questions based ONLY on the provided documents.
 
-        return f"""You are an accurate and reliable AI assistant. Answer questions based ONLY on the provided documents with proper academic citations.
-
-STRICT CITATION REQUIREMENTS - YOU MUST FOLLOW THESE:
-1. You MUST add [{citation_examples}] after EVERY claim you make
-2. Every sentence that contains factual information MUST end with a citation
-3. If you mention ANY concept, method, or fact, cite the document immediately
-4. Use ONLY the document numbers shown: [{citation_examples}]
-5. Do NOT write ANY sentence without a citation number
-6. Use MULTIPLE different documents - don't just cite [1] repeatedly
-7. Do NOT add a references section - it will be added automatically
-8. EXAMPLE: "Machine learning involves pattern recognition [1]. Neural networks are a popular approach [2]. Deep learning has shown success in many domains [3]."
-
-WRONG (no citations): "Machine learning is a powerful technique."
-CORRECT (with citations): "Machine learning is a powerful technique for pattern recognition [1]."
-
-WRONG (only one citation): "ML works by finding patterns [1]. It uses algorithms [1]. It requires data [1]."
-CORRECT (multiple citations): "ML works by finding patterns [1]. It uses algorithms [2]. It requires data [3]."
+OUTPUT REQUIREMENTS:
+1. Provide a complete and coherent answer in plain text.
+2. Do NOT add citation markers such as [1], [2], etc.
+3. Do NOT add a references section.
+4. If evidence is insufficient, say what is uncertain instead of fabricating.
 
 Documents:
 {docs_text}
 
 Question: {original_query}
 
-Remember: Use information from MULTIPLE documents and cite each one appropriately with [{citation_examples}]. Answer:"""
+Answer:"""
 
     def _log_retrieved_papers(
         self, query: str, retrieved_abstracts: List[Tuple], phase: str = "RETRIEVAL"
@@ -1477,16 +1463,17 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                 prompt = self._create_agent4_prompt_with_citations(
                     query, full_texts, citation_handler, should_split
                 )
-                raw_answer = self.agent4.generate(prompt)
+                raw_answer = self.agent4.generate(
+                    prompt, max_new_tokens=AGENT4_MAX_NEW_TOKENS
+                )
 
-            # Generate references with enhanced context passages
-            references = citation_handler.format_references(raw_answer)
+            # Strip residual citation markers if model still emits them.
+            raw_answer = re.sub(r"\[(\d+)\]", "", raw_answer)
+            raw_answer = re.sub(r"[ \t]{2,}", " ", raw_answer).strip()
 
-            # Remove any references Agent-4 might have added
-            if "Reference" in raw_answer:
-                raw_answer = re.split(r"References", raw_answer)[0]
-
-            citation_map = citation_handler.get_citation_map()
+            # Keep reference payload empty in non-citation mode.
+            references = ""
+            citation_map = {}
 
             # Enhanced debug info
             debug_info = {
@@ -1498,12 +1485,10 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                 # Backward-compatible alias for older consumers.
                 "total_filtered_docs": len(unique_filtered_chunks),
                 "full_texts_retrieved": len(full_texts),
-                "total_citations": len(citation_map),
+                "total_citations": 0,
                 "citation_map": citation_map,
-                "passages_used": self._extract_passages_used(
-                    raw_answer, citation_handler
-                ),
-                "document_metadata": self._extract_document_metadata(citation_handler),
+                "passages_used": [],
+                "document_metadata": {},
                 "context_stats": {
                     "max_context_chars": self.max_context_chars,
                     "total_chars_available": sum(len(text) for text, _ in full_texts),

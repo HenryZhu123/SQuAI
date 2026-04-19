@@ -63,3 +63,6 @@ PAPERCLIP_CACHE_MAX_ITEMS = int(
 PAPERCLIP_CACHE_MAX_BYTES = int(
     (os.environ.get("SQUAI_PAPERCLIP_CACHE_MAX_BYTES") or str(40 * 1024 * 1024)).strip()
 )
+
+# Agent4 generation length. Higher default to reduce mid-sentence truncation.
+AGENT4_MAX_NEW_TOKENS = int((os.environ.get("SQUAI_AGENT4_MAX_NEW_TOKENS") or "1024").strip())
