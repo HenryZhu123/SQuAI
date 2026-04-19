@@ -946,9 +946,15 @@ Is this document relevant and supportive for answering the question?"""
         docs_with_citations = []
         total_chars = 0
         documents_used = 0
+        chunk_only_mode = all("#chunk_" in str(doc_id) for _, doc_id in full_texts) if full_texts else False
 
         # Dynamic context allocation - top + bottom extraction approach
-        if was_split:
+        if chunk_only_mode:
+            top_chars = 0
+            bottom_chars = 0
+            strategy = "CHUNK-ONLY CONTEXT"
+            target_per_paper = "ranked chunks only"
+        elif was_split:
             # Conservative: Target ~4K total per paper
             top_chars = 2500  # Top of paper (title, abstract, intro start)
             bottom_chars = 1500  # Bottom of paper (conclusion, results)
@@ -967,60 +973,66 @@ Is this document relevant and supportive for answering the question?"""
         logger.info(
             f"   Context strategy: {strategy} - targeting {target_per_paper} chars per paper"
         )
-        logger.info(
-            f"   Extraction: TOP({top_chars} chars) + BOTTOM({bottom_chars} chars) + Title"
-        )
+        if chunk_only_mode:
+            logger.info("   Extraction: ranked chunk passages only (no full-paper compression)")
+        else:
+            logger.info(
+                f"   Extraction: TOP({top_chars} chars) + BOTTOM({bottom_chars} chars) + Title"
+            )
 
         for i, (doc_text, doc_id) in enumerate(full_texts):
-            # New approach: Extract from top and bottom of paper
-            condensed_content = []
+            if chunk_only_mode or "#chunk_" in str(doc_id):
+                condensed_text = (doc_text or "").strip()
+            else:
+                # New approach: Extract from top and bottom of paper
+                condensed_content = []
 
-            # Extract title first (if available)
-            title = PaperTitleExtractor.extract_title_from_text(doc_text, doc_id)
-            if title and not title.startswith("Document "):
-                condensed_content.append(f"Title: {title}")
+                # Extract title first (if available)
+                title = PaperTitleExtractor.extract_title_from_text(doc_text, doc_id)
+                if title and not title.startswith("Document "):
+                    condensed_content.append(f"Title: {title}")
 
-            # Remove "Content for [paper_id]:" line and other metadata for cleaner extraction
-            clean_text = doc_text
-            # Remove the "Content for" line
-            clean_text = re.sub(r"Content for [^:]*:\s*\n", "", clean_text)
-            # Remove any leading whitespace/newlines
-            clean_text = clean_text.strip()
+                # Remove "Content for [paper_id]:" line and other metadata for cleaner extraction
+                clean_text = doc_text
+                # Remove the "Content for" line
+                clean_text = re.sub(r"Content for [^:]*:\s*\n", "", clean_text)
+                # Remove any leading whitespace/newlines
+                clean_text = clean_text.strip()
 
-            # TOP EXTRACTION: Get beginning of paper (naturally includes abstract, intro start)
-            top_text = clean_text[:top_chars]
-            if len(clean_text) > top_chars:
-                # Find a good breaking point (end of sentence)
-                break_point = top_text.rfind(". ")
-                if (
-                    break_point > top_chars * 0.8
-                ):  # If we find a sentence end in the last 20%
-                    top_text = top_text[: break_point + 1]
-                else:
-                    top_text += "..."
-
-            condensed_content.append(f"[TOP {len(top_text)} chars]: {top_text}")
-
-            # BOTTOM EXTRACTION: Get end of paper (naturally includes conclusion, results)
-            if (
-                len(clean_text) > top_chars + 100
-            ):  # Only add bottom if there's enough remaining content
-                bottom_text = clean_text[-bottom_chars:]
-                if len(clean_text) > bottom_chars:
-                    # Find a good starting point (beginning of sentence)
-                    start_point = bottom_text.find(". ")
+                # TOP EXTRACTION: Get beginning of paper (naturally includes abstract, intro start)
+                top_text = clean_text[:top_chars]
+                if len(clean_text) > top_chars:
+                    # Find a good breaking point (end of sentence)
+                    break_point = top_text.rfind(". ")
                     if (
-                        start_point > 0 and start_point < bottom_chars * 0.2
-                    ):  # If we find sentence start in first 20%
-                        bottom_text = bottom_text[start_point + 2 :]  # +2 to skip ". "
+                        break_point > top_chars * 0.8
+                    ):  # If we find a sentence end in the last 20%
+                        top_text = top_text[: break_point + 1]
                     else:
-                        bottom_text = "..." + bottom_text
+                        top_text += "..."
 
-                condensed_content.append(
-                    f"[BOTTOM {len(bottom_text)} chars]: {bottom_text}"
-                )
+                condensed_content.append(f"[TOP {len(top_text)} chars]: {top_text}")
 
-            condensed_text = "\n\n".join(condensed_content)
+                # BOTTOM EXTRACTION: Get end of paper (naturally includes conclusion, results)
+                if (
+                    len(clean_text) > top_chars + 100
+                ):  # Only add bottom if there's enough remaining content
+                    bottom_text = clean_text[-bottom_chars:]
+                    if len(clean_text) > bottom_chars:
+                        # Find a good starting point (beginning of sentence)
+                        start_point = bottom_text.find(". ")
+                        if (
+                            start_point > 0 and start_point < bottom_chars * 0.2
+                        ):  # If we find sentence start in first 20%
+                            bottom_text = bottom_text[start_point + 2 :]  # +2 to skip ". "
+                        else:
+                            bottom_text = "..." + bottom_text
+
+                    condensed_content.append(
+                        f"[BOTTOM {len(bottom_text)} chars]: {bottom_text}"
+                    )
+
+                condensed_text = "\n\n".join(condensed_content)
 
             # Check if adding this document would exceed context limit
             estimated_doc_size = len(condensed_text) + 200  # +200 for formatting
@@ -1191,8 +1203,8 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             )
             logger.info(f"Using condensed sections to fit within limits")
 
-    def _process_single_question(self, query: str, db=None) -> Tuple[List[Tuple], List]:
-        """Process a single question and return (abstracts, filtered_documents)"""
+    def _process_single_question(self, query: str, db=None) -> Tuple[List[Tuple], List[Tuple[str, str]]]:
+        """Process a single question and return (abstracts, filtered_chunks[(chunk_text, chunk_id)])"""
 
         # PHASE 1: Retrieve ABSTRACTS for Agent2 & Agent3 filtering
         with time_block(f"retrieve_abstracts_{query[:20]}"):
@@ -1216,29 +1228,66 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             except Exception as e:
                 logger.warning("Paperclip Agent2 document build failed: %s", e)
 
-        # Step 2: Agent-2 generates answers from candidate documents
+        chunk_candidates = []
+        if hasattr(self.retriever, "build_agent2_chunk_candidates"):
+            try:
+                chunk_candidates = self.retriever.build_agent2_chunk_candidates(
+                    query, retrieved_abstracts
+                )
+                if chunk_candidates:
+                    logger.info(
+                        "Chunk-level candidates prepared for Agent2: %d",
+                        len(chunk_candidates),
+                    )
+            except Exception as e:
+                logger.warning("Chunk candidate build failed, fallback to doc-level flow: %s", e)
+
+        # Step 2: Agent-2 generates answers from candidate documents/chunks
         with time_block(f"agent2_generation_{query[:20]}"):
             logger.info(
                 f"Agent-2 generating answers from candidate documents for: {query[:50]}..."
             )
             doc_answers = []
-            for abstract_text, doc_id in tqdm(retrieved_abstracts):
-                paperclip_doc = paperclip_agent2_docs.get(doc_id)
-                doc_for_agent2 = (
-                    paperclip_doc.agent2_text if paperclip_doc else abstract_text
-                )
-                judge_document = (
-                    paperclip_doc.judge_text if paperclip_doc else abstract_text
-                )
-                prompt = self._create_agent2_prompt(query, doc_for_agent2)
-                answer = self.agent2.generate(prompt)
-                doc_answers.append((abstract_text, judge_document, doc_id, answer))
+            if chunk_candidates:
+                for c in tqdm(chunk_candidates):
+                    prompt = self._create_agent2_prompt(query, c.agent2_text)
+                    answer = self.agent2.generate(prompt)
+                    doc_answers.append(
+                        (
+                            c.doc_id,
+                            c.chunk_id,
+                            c.chunk_text,
+                            c.judge_text,
+                            answer,
+                        )
+                    )
+            else:
+                for abstract_text, doc_id in tqdm(retrieved_abstracts):
+                    paperclip_doc = paperclip_agent2_docs.get(doc_id)
+                    doc_for_agent2 = (
+                        paperclip_doc.agent2_text if paperclip_doc else abstract_text
+                    )
+                    judge_document = (
+                        paperclip_doc.judge_text if paperclip_doc else abstract_text
+                    )
+                    prompt = self._create_agent2_prompt(query, doc_for_agent2)
+                    answer = self.agent2.generate(prompt)
+                    # Backward-compatible pseudo chunk_id (doc-level candidate)
+                    doc_answers.append(
+                        (
+                            doc_id,
+                            f"{doc_id}#doc_0",
+                            abstract_text,
+                            judge_document,
+                            answer,
+                        )
+                    )
 
         # Step 3: Agent-3 evaluates candidate documents
         with time_block(f"agent3_evaluation_{query[:20]}"):
             logger.info(f"Agent-3 evaluating candidate documents for: {query[:50]}...")
             scores = []
-            for _, judge_document, doc_id, answer in tqdm(doc_answers):
+            for _, _, _, judge_document, answer in tqdm(doc_answers):
                 prompt = self._create_agent3_prompt(query, judge_document, answer)
                 log_probs = self.agent3.get_log_probs(prompt, ["Yes", "No"])
                 score = log_probs["Yes"] - log_probs["No"]
@@ -1252,13 +1301,13 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             f"Adaptive judge bar for '{query[:30]}...': tau_q={tau_q:.4f}, adjusted: {adjusted_tau_q:.4f}"
         )
 
-        # Step 5: Filter documents based on abstract evaluation
-        filtered_doc_ids = []
+        # Step 5: Filter chunks based on Agent3 evaluation
+        filtered_chunks: List[Tuple[str, str]] = []
         filtered_abstracts = []
-        for i, (abstract_text, _, doc_id, _) in enumerate(doc_answers):
+        for i, (doc_id, chunk_id, chunk_text, _, _) in enumerate(doc_answers):
             if scores[i] >= adjusted_tau_q:
-                filtered_doc_ids.append(doc_id)
-                filtered_abstracts.append((abstract_text, doc_id, scores[i]))
+                filtered_chunks.append((chunk_text, chunk_id))
+                filtered_abstracts.append((chunk_text, doc_id, scores[i]))
 
         filtered_abstracts.sort(key=lambda x: x[2], reverse=True)
 
@@ -1267,7 +1316,7 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             query, filtered_abstracts, [x[2] for x in filtered_abstracts]
         )
 
-        return retrieved_abstracts, filtered_doc_ids
+        return retrieved_abstracts, filtered_chunks
 
     def answer_query(self, query, db=None, choices=None, should_split=None, sub_questions=None):
         """
@@ -1292,7 +1341,7 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                 questions_to_process = [query]
 
             # PHASE 2: Parallel Processing of Questions
-            all_filtered_doc_ids = []
+            all_filtered_chunks: List[Tuple[str, str]] = []
 
             if len(questions_to_process) > 1:
                 # Parallel processing using thread pool
@@ -1313,10 +1362,10 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                     for future in as_completed(future_to_question):
                         sub_query = future_to_question[future]
                         try:
-                            retrieved_abstracts, filtered_doc_ids = future.result()
-                            all_filtered_doc_ids.extend(filtered_doc_ids)
+                            retrieved_abstracts, filtered_chunks = future.result()
+                            all_filtered_chunks.extend(filtered_chunks)
                             logger.info(
-                                f"Completed processing: {sub_query[:50]}... -> {len(filtered_doc_ids)} docs"
+                                f"Completed processing: {sub_query[:50]}... -> {len(filtered_chunks)} chunks"
                             )
                         except Exception as e:
                             logger.error(
@@ -1324,34 +1373,32 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                             )
             else:
                 # Single question processing
-                retrieved_abstracts, filtered_doc_ids = self._process_single_question(
+                retrieved_abstracts, filtered_chunks = self._process_single_question(
                     questions_to_process[0], db
                 )
-                all_filtered_doc_ids = filtered_doc_ids
+                all_filtered_chunks = filtered_chunks
 
-            # Remove duplicates while preserving order
+            # Remove duplicate chunks while preserving order
             seen = set()
-            unique_filtered_doc_ids = []
-            for doc_id in all_filtered_doc_ids:
-                if doc_id not in seen:
-                    seen.add(doc_id)
-                    unique_filtered_doc_ids.append(doc_id)
+            unique_filtered_chunks: List[Tuple[str, str]] = []
+            for chunk_text, chunk_id in all_filtered_chunks:
+                if chunk_id not in seen:
+                    seen.add(chunk_id)
+                    unique_filtered_chunks.append((chunk_text, chunk_id))
 
             logger.info(
-                f"Total unique filtered documents: {len(unique_filtered_doc_ids)}"
+                f"Total unique filtered chunks: {len(unique_filtered_chunks)}"
             )
 
-            # PHASE 3: Get FULL TEXTS for Agent4
+            # PHASE 3: Agent4 uses filtered chunks directly
             with time_block("get_full_texts"):
-                logger.info("Retrieving FULL texts for final answer generation...")
-                if unique_filtered_doc_ids:
-                    full_texts = self.retriever.get_full_texts(
-                        unique_filtered_doc_ids, db=db
-                    )
+                logger.info("Using Agent3-filtered chunk context for final answer generation...")
+                if unique_filtered_chunks:
+                    full_texts = unique_filtered_chunks
 
                     # Enhanced logging with context awareness
                     logger.info(
-                        f"FINAL ANSWER GENERATION: Retrieved {len(full_texts)} papers:"
+                        f"FINAL ANSWER GENERATION: Retrieved {len(full_texts)} context entries:"
                     )
                     logger.info("=" * 80)
                     for i, (doc_text, doc_id) in enumerate(full_texts, 1):
@@ -1378,17 +1425,17 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                     )
 
                 else:
-                    logger.warning("No documents passed the filter, using fallback")
+                    logger.warning("No chunks passed the filter, using fallback")
                     # Fallback to some documents from the original query
-                    fallback_abstracts, fallback_ids = self._process_single_question(
+                    fallback_abstracts, fallback_chunks = self._process_single_question(
                         query, db
                     )
-                    full_texts = self.retriever.get_full_texts(fallback_ids[:3], db=db)
+                    full_texts = fallback_chunks[:10]
                     if not full_texts:
                         # Last resort: use abstracts
                         full_texts = [
-                            (abstract_text, doc_id)
-                            for abstract_text, doc_id in fallback_abstracts[:3]
+                            (abstract_text, f"fallback#{idx}")
+                            for idx, (abstract_text, doc_id) in enumerate(fallback_abstracts[:3], start=1)
                         ]
 
                     # Log fallback papers
@@ -1432,7 +1479,9 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                 "was_split": should_split,
                 "sub_questions": sub_questions if should_split else [],
                 "questions_processed": len(questions_to_process),
-                "total_filtered_docs": len(unique_filtered_doc_ids),
+                "total_filtered_chunks": len(unique_filtered_chunks),
+                # Backward-compatible alias for older consumers.
+                "total_filtered_docs": len(unique_filtered_chunks),
                 "full_texts_retrieved": len(full_texts),
                 "total_citations": len(citation_map),
                 "citation_map": citation_map,
@@ -1603,7 +1652,13 @@ def format_enhanced_result_to_schema(result):
         "sub_questions": result.get("sub_questions", []),
         "questions_processed": result.get("questions_processed", 1),
         "citation_count": result.get("total_citations", 0),
-        "total_filtered_docs": result.get("total_filtered_docs", 0),
+        "total_filtered_chunks": result.get(
+            "total_filtered_chunks", result.get("total_filtered_docs", 0)
+        ),
+        # Backward-compatible alias
+        "total_filtered_docs": result.get(
+            "total_filtered_docs", result.get("total_filtered_chunks", 0)
+        ),
         "full_texts_used": result.get("full_texts_retrieved", 0),
         "processing_time": result.get("process_time", 0),
         "retriever_type": result.get("retriever_type", "hybrid"),
@@ -1943,6 +1998,7 @@ def main():
                 "sub_questions": debug_info["sub_questions"],
                 "questions_processed": debug_info["questions_processed"],
                 "total_citations": debug_info["total_citations"],
+                "total_filtered_chunks": debug_info["total_filtered_chunks"],
                 "total_filtered_docs": debug_info["total_filtered_docs"],
                 "full_texts_retrieved": debug_info["full_texts_retrieved"],
                 "passages_used": debug_info["passages_used"],
@@ -2014,6 +2070,7 @@ def main():
                 "sub_questions": debug_info["sub_questions"],
                 "questions_processed": debug_info["questions_processed"],
                 "total_citations": debug_info["total_citations"],
+                "total_filtered_chunks": debug_info["total_filtered_chunks"],
                 "total_filtered_docs": debug_info["total_filtered_docs"],
                 "full_texts_retrieved": debug_info["full_texts_retrieved"],
                 "passages_used": debug_info["passages_used"],
@@ -2079,7 +2136,13 @@ def main():
 
     if results:
         avg_time = sum(r["process_time"] for r in results) / len(results)
-        avg_filtered = sum(r["total_filtered_docs"] for r in results) / len(results)
+        avg_filtered = (
+            sum(
+                r.get("total_filtered_chunks", r.get("total_filtered_docs", 0))
+                for r in results
+            )
+            / len(results)
+        )
         avg_citations = sum(r["total_citations"] for r in results) / len(results)
         avg_full_texts = sum(r["full_texts_retrieved"] for r in results) / len(results)
         split_count = sum(1 for r in results if r["was_split"])
@@ -2088,7 +2151,7 @@ def main():
         logger.info(
             f"Questions split: {split_count}/{len(results)} ({split_count/len(results)*100:.1f}%)"
         )
-        logger.info(f"Average filtered documents: {avg_filtered:.1f}")
+        logger.info(f"Average filtered chunks: {avg_filtered:.1f}")
         logger.info(f"Average citations: {avg_citations:.1f}")
         logger.info(f"Average full texts used: {avg_full_texts:.1f}")
 
