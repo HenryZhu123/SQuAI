@@ -26,7 +26,7 @@ import multiprocessing as mp
 from performance_monitor import monitor, time_block
 
 # Import configuration
-from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH
+from config import E5_INDEX_DIR, BM25_INDEX_DIR, DB_PATH, PAPERCLIP_AGENT2_ENABLED
 from sqlite_compat import open_db
 from key_resolver import resolve_api_key
 
@@ -49,6 +49,7 @@ logger = logging.getLogger("Enhanced_4Agent_RAG")
 
 # Import the hybrid retriever components
 from hybrid_retriever import Retriever
+from paperclip_agent2_retriever import PaperclipBackedRetriever
 
 
 class QuestionSplitter:
@@ -1201,23 +1202,44 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             # ✨ NEW: Log retrieved papers with titles
             self._log_retrieved_papers(query, retrieved_abstracts, "RETRIEVAL")
 
-        # Step 2: Agent-2 generates answers from ABSTRACTS
+        paperclip_agent2_docs = {}
+        if hasattr(self.retriever, "build_agent2_documents"):
+            try:
+                paperclip_agent2_docs = self.retriever.build_agent2_documents(
+                    query, retrieved_abstracts
+                )
+                if paperclip_agent2_docs:
+                    logger.info(
+                        "Paperclip Agent2 docs prepared: %d",
+                        len(paperclip_agent2_docs),
+                    )
+            except Exception as e:
+                logger.warning("Paperclip Agent2 document build failed: %s", e)
+
+        # Step 2: Agent-2 generates answers from candidate documents
         with time_block(f"agent2_generation_{query[:20]}"):
             logger.info(
-                f"Agent-2 generating answers from abstracts for: {query[:50]}..."
+                f"Agent-2 generating answers from candidate documents for: {query[:50]}..."
             )
             doc_answers = []
             for abstract_text, doc_id in tqdm(retrieved_abstracts):
-                prompt = self._create_agent2_prompt(query, abstract_text)
+                paperclip_doc = paperclip_agent2_docs.get(doc_id)
+                doc_for_agent2 = (
+                    paperclip_doc.agent2_text if paperclip_doc else abstract_text
+                )
+                judge_document = (
+                    paperclip_doc.judge_text if paperclip_doc else abstract_text
+                )
+                prompt = self._create_agent2_prompt(query, doc_for_agent2)
                 answer = self.agent2.generate(prompt)
-                doc_answers.append((abstract_text, doc_id, answer))
+                doc_answers.append((abstract_text, judge_document, doc_id, answer))
 
-        # Step 3: Agent-3 evaluates documents using ABSTRACTS
+        # Step 3: Agent-3 evaluates candidate documents
         with time_block(f"agent3_evaluation_{query[:20]}"):
-            logger.info(f"Agent-3 evaluating abstracts for: {query[:50]}...")
+            logger.info(f"Agent-3 evaluating candidate documents for: {query[:50]}...")
             scores = []
-            for abstract_text, doc_id, answer in tqdm(doc_answers):
-                prompt = self._create_agent3_prompt(query, abstract_text, answer)
+            for _, judge_document, doc_id, answer in tqdm(doc_answers):
+                prompt = self._create_agent3_prompt(query, judge_document, answer)
                 log_probs = self.agent3.get_log_probs(prompt, ["Yes", "No"])
                 score = log_probs["Yes"] - log_probs["No"]
                 scores.append(score)
@@ -1233,7 +1255,7 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
         # Step 5: Filter documents based on abstract evaluation
         filtered_doc_ids = []
         filtered_abstracts = []
-        for i, (abstract_text, doc_id, _) in enumerate(doc_answers):
+        for i, (abstract_text, _, doc_id, _) in enumerate(doc_answers):
             if scores[i] >= adjusted_tau_q:
                 filtered_doc_ids.append(doc_id)
                 filtered_abstracts.append((abstract_text, doc_id, scores[i]))
@@ -1509,9 +1531,12 @@ def initialize_retriever(
 ):
     """Initialize the retriever with strategy and alpha support"""
     logger.info(f"Initializing {retriever_type} retriever with alpha={alpha}...")
-    return Retriever(
+    base = Retriever(
         e5_index_dir, bm25_index_dir, top_k=top_k, strategy=retriever_type, alpha=alpha
     )
+    if PAPERCLIP_AGENT2_ENABLED:
+        logger.info("Paperclip Agent2 mode enabled")
+    return PaperclipBackedRetriever(base, alpha=alpha)
 
 
 # Your existing utility functions (unchanged)

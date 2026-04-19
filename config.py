@@ -30,3 +30,36 @@ FULLTEXT_PG_DSN = _pg_dsn_env or (FULLTEXT_PG_DSN_DEFAULT or "").strip()
 FULLTEXT_PG_TABLE_DEFAULT = "squai_fulltext_kv"
 _pg_table_env = (os.environ.get("SQUAI_FULLTEXT_PG_TABLE") or "").strip()
 FULLTEXT_PG_TABLE = _pg_table_env or FULLTEXT_PG_TABLE_DEFAULT
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+# Optional Paperclip path for Agent2 input documents.
+# Disabled by default to preserve existing behavior.
+PAPERCLIP_AGENT2_ENABLED = _env_bool("SQUAI_PAPERCLIP_AGENT2", False)
+PAPERCLIP_SEARCH_TOP_K = int((os.environ.get("SQUAI_PAPERCLIP_SEARCH_TOP_K") or "5").strip())
+PAPERCLIP_SEARCH_TIMEOUT_SEC = int(
+    (os.environ.get("SQUAI_PAPERCLIP_SEARCH_TIMEOUT_SEC") or "20").strip()
+)
+PAPERCLIP_CAT_TIMEOUT_SEC = int(
+    (os.environ.get("SQUAI_PAPERCLIP_CAT_TIMEOUT_SEC") or "30").strip()
+)
+PAPERCLIP_CHUNK_SIZE = int((os.environ.get("SQUAI_PAPERCLIP_CHUNK_SIZE") or "1400").strip())
+PAPERCLIP_CHUNK_OVERLAP = int(
+    (os.environ.get("SQUAI_PAPERCLIP_CHUNK_OVERLAP") or "250").strip()
+)
+PAPERCLIP_AGENT2_TOP_CHUNKS = int(
+    (os.environ.get("SQUAI_PAPERCLIP_AGENT2_TOP_CHUNKS") or "3").strip()
+)
+PAPERCLIP_CAT_WORKERS = int((os.environ.get("SQUAI_PAPERCLIP_CAT_WORKERS") or "4").strip())
+PAPERCLIP_CACHE_MAX_ITEMS = int(
+    (os.environ.get("SQUAI_PAPERCLIP_CACHE_MAX_ITEMS") or "32").strip()
+)
+PAPERCLIP_CACHE_MAX_BYTES = int(
+    (os.environ.get("SQUAI_PAPERCLIP_CACHE_MAX_BYTES") or str(40 * 1024 * 1024)).strip()
+)
