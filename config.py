@@ -49,9 +49,9 @@ PAPERCLIP_SEARCH_TIMEOUT_SEC = int(
 PAPERCLIP_CAT_TIMEOUT_SEC = int(
     (os.environ.get("SQUAI_PAPERCLIP_CAT_TIMEOUT_SEC") or "30").strip()
 )
-PAPERCLIP_CHUNK_SIZE = int((os.environ.get("SQUAI_PAPERCLIP_CHUNK_SIZE") or "1400").strip())
+PAPERCLIP_CHUNK_SIZE = int((os.environ.get("SQUAI_PAPERCLIP_CHUNK_SIZE") or "512").strip())
 PAPERCLIP_CHUNK_OVERLAP = int(
-    (os.environ.get("SQUAI_PAPERCLIP_CHUNK_OVERLAP") or "250").strip()
+    (os.environ.get("SQUAI_PAPERCLIP_CHUNK_OVERLAP") or "128").strip()
 )
 PAPERCLIP_AGENT2_TOP_CHUNKS = int(
     (os.environ.get("SQUAI_PAPERCLIP_AGENT2_TOP_CHUNKS") or "3").strip()

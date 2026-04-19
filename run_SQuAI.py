@@ -1203,8 +1203,8 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
             )
             logger.info(f"Using condensed sections to fit within limits")
 
-    def _process_single_question(self, query: str, db=None) -> Tuple[List[Tuple], List[Tuple[str, str]]]:
-        """Process a single question and return (abstracts, filtered_chunks[(chunk_text, chunk_id)])"""
+    def _process_single_question(self, query: str, db=None) -> Tuple[List[Tuple], List[Tuple[str, str, float]]]:
+        """Process a single question and return (abstracts, filtered_chunks[(chunk_text, chunk_id, score)])"""
 
         # PHASE 1: Retrieve ABSTRACTS for Agent2 & Agent3 filtering
         with time_block(f"retrieve_abstracts_{query[:20]}"):
@@ -1302,11 +1302,11 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
         )
 
         # Step 5: Filter chunks based on Agent3 evaluation
-        filtered_chunks: List[Tuple[str, str]] = []
+        filtered_chunks: List[Tuple[str, str, float]] = []
         filtered_abstracts = []
         for i, (doc_id, chunk_id, chunk_text, _, _) in enumerate(doc_answers):
             if scores[i] >= adjusted_tau_q:
-                filtered_chunks.append((chunk_text, chunk_id))
+                filtered_chunks.append((chunk_text, chunk_id, scores[i]))
                 filtered_abstracts.append((chunk_text, doc_id, scores[i]))
 
         filtered_abstracts.sort(key=lambda x: x[2], reverse=True)
@@ -1341,7 +1341,7 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                 questions_to_process = [query]
 
             # PHASE 2: Parallel Processing of Questions
-            all_filtered_chunks: List[Tuple[str, str]] = []
+            all_filtered_chunks: List[Tuple[str, str, float]] = []
 
             if len(questions_to_process) > 1:
                 # Parallel processing using thread pool
@@ -1380,21 +1380,35 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
 
             # Remove duplicate chunks while preserving order
             seen = set()
-            unique_filtered_chunks: List[Tuple[str, str]] = []
-            for chunk_text, chunk_id in all_filtered_chunks:
+            unique_filtered_chunks: List[Tuple[str, str, float]] = []
+            best_score_by_chunk: Dict[str, float] = {}
+            for chunk_text, chunk_id, score in all_filtered_chunks:
                 if chunk_id not in seen:
                     seen.add(chunk_id)
-                    unique_filtered_chunks.append((chunk_text, chunk_id))
+                    unique_filtered_chunks.append((chunk_text, chunk_id, score))
+                    best_score_by_chunk[chunk_id] = score
+                elif score > best_score_by_chunk.get(chunk_id, float("-inf")):
+                    best_score_by_chunk[chunk_id] = score
+                    for idx, (_, cid, _) in enumerate(unique_filtered_chunks):
+                        if cid == chunk_id:
+                            unique_filtered_chunks[idx] = (chunk_text, chunk_id, score)
+                            break
+
+            unique_filtered_chunks.sort(key=lambda x: x[2], reverse=True)
+            selected_agent4_chunks = unique_filtered_chunks[:5]
 
             logger.info(
                 f"Total unique filtered chunks: {len(unique_filtered_chunks)}"
+            )
+            logger.info(
+                f"Submitting top-{len(selected_agent4_chunks)} chunks to Agent-4"
             )
 
             # PHASE 3: Agent4 uses filtered chunks directly
             with time_block("get_full_texts"):
                 logger.info("Using Agent3-filtered chunk context for final answer generation...")
-                if unique_filtered_chunks:
-                    full_texts = unique_filtered_chunks
+                if selected_agent4_chunks:
+                    full_texts = [(t, cid) for (t, cid, _) in selected_agent4_chunks]
 
                     # Enhanced logging with context awareness
                     logger.info(
@@ -1430,7 +1444,8 @@ Remember: Use information from MULTIPLE documents and cite each one appropriatel
                     fallback_abstracts, fallback_chunks = self._process_single_question(
                         query, db
                     )
-                    full_texts = fallback_chunks[:10]
+                    fallback_chunks.sort(key=lambda x: x[2], reverse=True)
+                    full_texts = [(t, cid) for (t, cid, _) in fallback_chunks[:5]]
                     if not full_texts:
                         # Last resort: use abstracts
                         full_texts = [
